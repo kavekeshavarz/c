@@ -1,0 +1,182 @@
+// @version=6
+// @description Multi-Timeframe Ichimoku Kinko Hyo Crossover Indicator with Precise Crossover Lines
+
+indicator("Multi-Timeframe Ichimoku Crossover with Swing Filter", overlay=true)
+
+// General Settings
+group_general = "General Settings"
+LookbackCandles = input.int(300, title="Lookback Candles", minval=50, maxval=1000, group=group_general)
+EnableAlerts = input.bool(true, title="Enable Alerts", group=group_general)
+SwingBreakFilter = input.bool(true, title="Enable Swing Break Filter", group=group_general)
+LineShowLimit = input.int(5, title="Max Lines per Timeframe", minval=1, maxval=20, group=group_general)
+ATR_Period = input.int(14, title="ATR Period for Label Positioning", minval=1, group=group_general)
+DebugMode = input.bool(false, title="Enable Debug Labels", group=group_general)
+
+// M5 Timeframe Settings
+group_m5 = "M5 Timeframe"
+Enable_M5 = input.bool(true, title="Enable M5", group=group_m5)
+M5_Tenkan = input.int(9, title="M5 Tenkan Period", minval=1, group=group_m5)
+M5_Kijun = input.int(26, title="M5 Kijun Period", minval=1, group=group_m5)
+M5_BullColor = input.color(color.green, title="M5 Bullish Color", group=group_m5)
+M5_BearColor = input.color(color.red, title="M5 Bearish Color", group=group_m5)
+M5_SwingLookback = input.int(20, title="M5 Swing Lookback", minval=5, group=group_m5)
+
+// M15 Timeframe Settings
+group_m15 = "M15 Timeframe"
+Enable_M15 = input.bool(true, title="Enable M15", group=group_m15)
+M15_Tenkan = input.int(9, title="M15 Tenkan Period", minval=1, group=group_m15)
+M15_Kijun = input.int(26, title="M15 Kijun Period", minval=1, group=group_m15)
+M15_BullColor = input.color(color.lime, title="M15 Bullish Color", group=group_m15)
+M15_BearColor = input.color(color.maroon, title="M15 Bearish Color", group=group_m15)
+M15_SwingLookback = input.int(20, title="M15 Swing Lookback", minval=5, group=group_m15)
+
+// M30 Timeframe Settings
+group_m30 = "M30 Timeframe"
+Enable_M30 = input.bool(true, title="Enable M30", group=group_m30)
+M30_Tenkan = input.int(9, title="M30 Tenkan Period", minval=1, group=group_m30)
+M30_Kijun = input.int(26, title="M30 Kijun Period", minval=1, group=group_m30)
+M30_BullColor = input.color(color.teal, title="M30 Bullish Color", group=group_m30)
+M30_BearColor = input.color(color.orange, title="M30 Bearish Color", group=group_m30)
+M30_SwingLookback = input.int(20, title="M30 Swing Lookback", minval=5, group=group_m30)
+
+// H1 Timeframe Settings
+group_h1 = "H1 Timeframe"
+Enable_H1 = input.bool(true, title="Enable H1", group=group_h1)
+H1_Tenkan = input.int(9, title="H1 Tenkan Period", minval=1, group=group_h1)
+H1_Kijun = input.int(26, title="H1 Kijun Period", minval=1, group=group_h1)
+H1_BullColor = input.color(color.blue, title="H1 Bullish Color", group=group_h1)
+H1_BearColor = input.color(color.purple, title="H1 Bearish Color", group=group_h1)
+H1_SwingLookback = input.int(20, title="H1 Swing Lookback", minval=5, group=group_h1)
+
+// H4 Timeframe Settings
+group_h4 = "H4 Timeframe"
+Enable_H4 = input.bool(true, title="Enable H4", group=group_h4)
+H4_Tenkan = input.int(9, title="H4 Tenkan Period", minval=1, group=group_h4)
+H4_Kijun = input.int(26, title="H4 Kijun Period", minval=1, group=group_h4)
+H4_BullColor = input.color(color.aqua, title="H4 Bullish Color", group=group_h4)
+H4_BearColor = input.color(color.fuchsia, title="H4 Bearish Color", group=group_h4)
+H4_SwingLookback = input.int(20, title="H4 Swing Lookback", minval=5, group=group_h4)
+
+// Arrays to store lines, labels, and their start bars for each timeframe
+var array<line> lines_m5 = array.new_line(0)
+var array<label> labels_m5 = array.new_label(0)
+var array<int> start_bars_m5 = array.new_int(0)
+var array<line> lines_m15 = array.new_line(0)
+var array<label> labels_m15 = array.new_label(0)
+var array<int> start_bars_m15 = array.new_int(0)
+var array<line> lines_m30 = array.new_line(0)
+var array<label> labels_m30 = array.new_label(0)
+var array<int> start_bars_m30 = array.new_int(0)
+var array<line> lines_h1 = array.new_line(0)
+var array<label> labels_h1 = array.new_label(0)
+var array<int> start_bars_h1 = array.new_int(0)
+var array<line> lines_h4 = array.new_line(0)
+var array<label> labels_h4 = array.new_label(0)
+var array<int> start_bars_h4 = array.new_int(0)
+
+// Function to calculate Ichimoku components
+f_ichimoku(tenkan_period, kijun_period) =>
+    tenkan = (ta.highest(high, tenkan_period) + ta.lowest(low, tenkan_period)) / 2
+    kijun = (ta.highest(high, kijun_period) + ta.lowest(low, kijun_period)) / 2
+    [tenkan, kijun]
+
+// Function to detect swing levels
+f_swingLevels(lookback) =>
+    swing_high = ta.highest(close, lookback)
+    swing_low = ta.lowest(close, lookback)
+    [swing_high, swing_low]
+
+// Function to calculate crossover price (approximation)
+f_crossoverPrice(tenkan, kijun) =>
+    // Approximate crossover price as the average of Tenkan and Kijun at crossover
+    (tenkan + kijun) / 2
+
+// Function to clean up old lines and labels
+f_cleanup(array<line> lines, array<label> labels, array<int> start_bars) =>
+    while array.size(lines) > LineShowLimit
+        line.delete(array.shift(lines))
+        label.delete(array.shift(labels))
+        array.shift(start_bars)
+
+// Function to update line end point to current candle
+f_updateLine(line_id, start_bar, price) =>
+    if not na(line_id)
+        line.set_x2(line_id, bar_index)
+        line.set_y2(line_id, price)
+
+// Function to process signals for a timeframe
+f_processTimeframe(tf, tenkan_period, kijun_period, bull_color, bear_color, swing_lookback, enable_tf, tf_label, array<line> lines, array<label> labels, array<int> start_bars) =>
+    if enable_tf
+        // Request security data
+        [tenkan, kijun] = request.security(syminfo.tickerid, tf, f_ichimoku(tenkan_period, kijun_period), gaps=barmerge.gaps_on)
+        [swing_high, swing_low] = request.security(syminfo.tickerid, tf, f_swingLevels(swing_lookback), gaps=barmerge.gaps_on)
+        
+        // Detect crossovers
+        bull_cross = ta.crossover(tenkan, kijun)
+        bear_cross = ta.crossunder(tenkan, kijun)
+        
+        // Debug labels for crossovers
+        if DebugMode and bull_cross
+            label.new(bar_index, high, text=tf_label + " Bull Cross Detected", color=color.yellow, style=label.style_label_down, textcolor=color.black, size=size.tiny)
+        if DebugMode and bear_cross
+            label.new(bar_index, low, text=tf_label + " Bear Cross Detected", color=color.yellow, style=label.style_label_up, textcolor=color.black, size=size.tiny)
+        
+        // Swing break confirmation
+        price = close
+        bull_valid = not SwingBreakFilter or (SwingBreakFilter and price > swing_high[1])
+        bear_valid = not SwingBreakFilter or (SwingBreakFilter and price < swing_low[1])
+        
+        // Debug labels for swing break validation
+        if DebugMode and bull_cross and not bull_valid
+            label.new(bar_index, high, text=tf_label + " Bull Cross Invalid (Swing)", color=color.red, style=label.style_label_down, textcolor=color.white, size=size.tiny)
+        if DebugMode and bear_cross and not bear_valid
+            label.new(bar_index, low, text=tf_label + " Bear Cross Invalid (Swing)", color=color.red, style=label.style_label_up, textcolor=color.white, size=size.tiny)
+        
+        // ATR for label positioning
+        atr = ta.atr(ATR_Period)
+        offset = atr * 2
+        
+        // Calculate crossover price and plot lines/labels
+        if bull_cross and bull_valid
+            cross_price = f_crossoverPrice(tenkan[1], kijun[1])
+            new_line = line.new(bar_index[1], cross_price, bar_index, cross_price, color=bull_color, style=line.style_solid)
+            new_label = label.new(bar_index, cross_price + offset, text=tf_label + " Bullish", color=bull_color, textcolor=color.white, style=label.style_label_down, size=size.small)
+            array.push(lines, new_line)
+            array.push(labels, new_label)
+            array.push(start_bars, bar_index[1])
+            if EnableAlerts
+                alert(message=tf_label + " Bullish Crossover at " + str.tostring(cross_price), freq=alert.freq_once_per_bar)
+        
+        if bear_cross and bear_valid
+            cross_price = f_crossoverPrice(tenkan[1], kijun[1])
+            new_line = line.new(bar_index[1], cross_price, bar_index, cross_price, color=bear_color, style=line.style_solid)
+            new_label = label.new(bar_index, cross_price - offset, text=tf_label + " Bearish", color=bear_color, textcolor=color.white, style=label.style_label_up, size=size.small)
+            array.push(lines, new_line)
+            array.push(labels, new_label)
+            array.push(start_bars, bar_index[1])
+            if EnableAlerts
+                alert(message=tf_label + " Bearish Crossover at " + str.tostring(cross_price), freq=alert.freq_once_per_bar)
+        
+        // Update existing lines to extend to current candle
+        for i = 0 to array.size(lines) - 1
+            if array.size(lines) > 0
+                line_id = array.get(lines, i)
+                start_bar = array.get(start_bars, i)
+                line_price = line.get_y1(line_id)
+                f_updateLine(line_id, start_bar, line_price)
+        
+        // Plot swing levels
+        if SwingBreakFilter
+            line.new(bar_index[1], swing_high[1], bar_index, swing_high[1], color=color.gray, style=line.style_dotted)
+            line.new(bar_index[1], swing_low[1], bar_index, swing_low[1], color=color.gray, style=line.style_dotted)
+        
+        // Clean up old lines and labels
+        if bar_index > LookbackCandles
+            f_cleanup(lines, labels, start_bars)
+
+// Process each timeframe
+f_processTimeframe("5", M5_Tenkan, M5_Kijun, M5_BullColor, M5_BearColor, M5_SwingLookback, Enable_M5, "M5", lines_m5, labels_m5, start_bars_m5)
+f_processTimeframe("15", M15_Tenkan, M15_Kijun, M15_BullColor, M15_BearColor, M15_SwingLookback, Enable_M15, "M15", lines_m15, labels_m15, start_bars_m15)
+f_processTimeframe("30", M30_Tenkan, M30_Kijun, M30_BullColor, M30_BearColor, M30_SwingLookback, Enable_M30, "M30", lines_m30, labels_m30, start_bars_m30)
+f_processTimeframe("60", H1_Tenkan, H1_Kijun, H1_BullColor, H1_BearColor, H1_SwingLookback, Enable_H1, "H1", lines_h1, labels_h1, start_bars_h1)
+f_processTimeframe("240", H4_Tenkan, H4_Kijun, H4_BullColor, H4_BearColor, H4_SwingLookback, Enable_H4, "H4", lines_h4, labels_h4, start_bars_h4)
